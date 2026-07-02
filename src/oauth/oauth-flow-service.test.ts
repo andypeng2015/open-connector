@@ -112,6 +112,37 @@ const customOAuthProvider: ProviderDefinition = {
   ],
 };
 
+const baseUrlOAuthProvider: ProviderDefinition = {
+  ...oauthProvider,
+  service: "base_url_oauth",
+  auth: [
+    {
+      type: "oauth2",
+      authorizationUrl: "{+baseUrl}/oauth/{tenant}/authorize",
+      tokenUrl: "{+baseUrl}/oauth/{tenant}/token",
+      scopes: ["read"],
+      redirectPath: "/oauth/callback/base_url_oauth",
+      tokenEndpointAuthMethod: "client_secret_post",
+      clientConfigFields: [
+        {
+          key: "baseUrl",
+          label: "Base URL",
+          inputType: "text",
+          required: true,
+          secret: false,
+        },
+        {
+          key: "tenant",
+          label: "Tenant",
+          inputType: "text",
+          required: true,
+          secret: false,
+        },
+      ],
+    },
+  ],
+};
+
 const overrideAuthorizationParamsProvider: ProviderDefinition = {
   ...oauthProvider,
   service: "override_oauth",
@@ -385,6 +416,31 @@ describe("OAuthFlowService", () => {
       expect(credential.metadata).not.toHaveProperty("refreshToken");
       expect(credential.metadata).not.toHaveProperty("idToken");
     }
+  });
+
+  it("supports raw base URL placeholders in provider OAuth endpoints", async () => {
+    const services = createServices([baseUrlOAuthProvider]);
+    await services.clientConfigs.upsertConfig({
+      service: "base_url_oauth",
+      clientId: "client-id",
+      clientSecret: "client-secret",
+      extra: {
+        baseUrl: "https://tenant.example.com/",
+        tenant: "tenant/a",
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ access_token: "access-token", token_type: "Bearer" })),
+    );
+
+    const started = await services.flow.startAuthorization({ service: "base_url_oauth" });
+    expect(new URL(started.authorizationUrl).toString()).toContain(
+      "https://tenant.example.com/oauth/tenant%2Fa/authorize",
+    );
+
+    await services.flow.completeAuthorization({ state: started.state, code: "code" });
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://tenant.example.com/oauth/tenant%2Fa/token");
   });
 });
 

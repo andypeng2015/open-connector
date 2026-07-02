@@ -118,12 +118,12 @@ export class OAuthClientConfigService {
 
   resolveEndpointUrl(service: string, endpointUrl: string, config: OAuthClientConfig): string {
     this.getOAuthDefinition(service);
-    return endpointUrl.replaceAll(/\{([A-Za-z0-9_]+)\}/g, (_match, key: string) => {
+    return endpointUrl.replaceAll(/\{(\+?)([A-Za-z0-9_]+)\}/g, (_match, rawModifier: string, key: string) => {
       const value = config.extra[key];
       if (!value) {
         throw new OAuthClientConfigError("invalid_input", `${key} is required.`);
       }
-      return encodeURIComponent(value);
+      return rawModifier === "+" ? value.replace(/\/+$/, "") : encodeURIComponent(value);
     });
   }
 
