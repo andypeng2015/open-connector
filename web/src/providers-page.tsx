@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from "react";
 
 import { useTranslate } from "@embra/i18n/react";
 import { Check, ExternalLink, KeyRound, PlugZap, Search, Settings, ShieldCheck, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { apiDelete, apiPost, apiPut } from "./api";
 import { credentialFieldsFor, filterProviders, sortProviders } from "./model";
@@ -359,6 +359,13 @@ export function oauthClientActionLabel(config: OAuthConfig | undefined): string 
   return config ? "Edit OAuth Client" : "Configure OAuth Client";
 }
 
+export function shouldClearOAuthClientStatus(input: {
+  providerChanged: boolean;
+  skipNextConfigClear: boolean;
+}): boolean {
+  return input.providerChanged || !input.skipNextConfigClear;
+}
+
 export interface OAuthPopupPlacement {
   screenX: number;
   screenY: number;
@@ -525,6 +532,35 @@ function OAuthClientSettings(props: {
   onRefresh(): void;
 }): ReactNode {
   const t = useTranslate();
+  const [status, setStatus] = useState<string | null>(null);
+  const previousProviderService = useRef(props.provider.service);
+  const skipNextConfigClear = useRef(false);
+
+  useEffect(() => {
+    const providerChanged = previousProviderService.current !== props.provider.service;
+    previousProviderService.current = props.provider.service;
+    const shouldClear = shouldClearOAuthClientStatus({
+      providerChanged,
+      skipNextConfigClear: skipNextConfigClear.current,
+    });
+    skipNextConfigClear.current = false;
+    if (shouldClear) {
+      setStatus(null);
+    }
+  }, [props.provider.service, props.config?.clientId]);
+
+  async function reset(): Promise<void> {
+    setStatus(t("providers.oauthClientSettings.resetting"));
+    try {
+      await apiDelete(`/api/oauth/configs/${props.provider.service}`);
+      setStatus(t("providers.oauthClientSettings.reset"));
+      skipNextConfigClear.current = true;
+      props.onRefresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : t("providers.oauthClientSettings.resetFailed"));
+    }
+  }
+
   return (
     <div className="oauth-client-settings">
       <div className="oauth-client-summary">
@@ -546,13 +582,22 @@ function OAuthClientSettings(props: {
               : t("providers.oauthClientSettings.missingDescription", { name: props.provider.displayName })}
           </p>
         </div>
-        <button className="secondary-button compact" type="button" onClick={props.onToggle}>
-          <Settings size={14} />
-          {props.expanded
-            ? t("common.close")
-            : t(props.config ? "providers.buttons.editOAuthClient" : "providers.buttons.configureOAuthClient")}
-        </button>
+        <div className="oauth-client-actions">
+          <button className="secondary-button compact" type="button" onClick={props.onToggle}>
+            <Settings size={14} />
+            {props.expanded
+              ? t("common.close")
+              : t(props.config ? "providers.buttons.editOAuthClient" : "providers.buttons.configureOAuthClient")}
+          </button>
+          {props.config ? (
+            <button className="secondary-button compact" type="button" onClick={() => void reset()}>
+              <Trash2 size={14} />
+              {t("providers.buttons.resetOAuthClient")}
+            </button>
+          ) : null}
+        </div>
       </div>
+      {status ? <p className="form-status">{status}</p> : null}
       {shouldShowOAuthClientForm(props.auth, props.expanded) ? (
         <div className="oauth-client-editor">
           <OAuthConfigForm provider={props.provider} config={props.config} onRefresh={props.onRefresh} />
